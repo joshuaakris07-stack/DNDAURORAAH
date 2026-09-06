@@ -1,0 +1,106 @@
+@import url("https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 22 17% 5%;
+    --foreground: 39 49% 89%;
+    --card: 18 14% 9%;
+    --card-foreground: 39 49% 89%;
+    --popover: 18 14% 9%;
+    --popover-foreground: 39 49% 89%;
+    --primary: 0 60% 33%;
+    --primary-foreground: 39 49% 89%;
+    --secondary: 18 18% 14%;
+    --secondary-foreground: 39 49% 89%;
+    --muted: 18 14% 12%;
+    --muted-foreground: 40 18% 60%;
+    --accent: 38 50% 58%;
+    --accent-foreground: 22 17% 5%;
+    --destructive: 0 60% 33%;
+    --destructive-foreground: 39 49% 89%;
+    --border: 20 18% 19%;
+    --input: 20 18% 19%;
+    --ring: 38 50% 58%;
+    --radius: 0.125rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html, body, #root {
+    background: #0F0C0B;
+    color: #F2E8D5;
+    min-height: 100%;
+  }
+  body {
+    margin: 0;
+    font-family: "EB Garamond", Georgia, serif;
+    font-feature-settings: "liga", "kern";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background-color: #0F0C0B;
+  }
+  ::selection {
+    background: #C9A25E;
+    color: #0F0C0B;
+  }
+}
+
+/* Parchment / grain texture */
+.bg-grain {
+  background-image:
+    radial-gradient(rgba(201, 162, 94, 0.05) 1px, transparent 1px);
+  background-size: 4px 4px;
+}
+
+.bg-leather {
+  background:
+    radial-gradient(ellipse at top, rgba(201, 162, 94, 0.08), transparent 60%),
+    radial-gradient(ellipse at bottom, rgba(138, 34, 34, 0.05), transparent 60%),
+    #0F0C0B;
+}
+
+.divider-gold {
+  position: relative;
+  height: 1px;
+  background: linear-gradient(to right, transparent, #C9A25E, transparent);
+}
+
+.divider-gold::before,
+.divider-gold::after {
+  content: "❖";
+  position: absolute;
+  top: -10px;
+  color: #C9A25E;
+  font-size: 14px;
+  background: #0F0C0B;
+  padding: 0 8px;
+}
+
+.divider-gold::before { left: 50%; transform: translateX(-50%); }
+.divider-gold::after { display: none; }
+
+.btn-press {
+  transition: transform 0.15s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+.btn-press:active { transform: translateY(1px); }
+
+.shimmer {
+  background: linear-gradient(110deg, transparent 30%, rgba(201,162,94,0.15) 50%, transparent 70%);
+  background-size: 200% 100%;
+  animation: shimmer 3s linear infinite;
+}
+@keyframes shimmer {
+  to { background-position: -200% 0; }
+}
+
+.scrollbar-arcane::-webkit-scrollbar { width: 8px; height: 8px; }
+.scrollbar-arcane::-webkit-scrollbar-track { background: #1A1514; }
+.scrollbar-arcane::-webkit-scrollbar-thumb { background: #3A2E28; }
+.scrollbar-arcane::-webkit-scrollbar-thumb:hover { background: #C9A25E; }

@@ -1,0 +1,29 @@
+# Fly.io deploy config — Aurora D&D Codex (React frontend, static).
+# PocketBase runs as a separate Fly app (https://dndlostharcreation.fly.dev)
+# and provides the database, auth, and file storage.
+#
+# Deploy:
+#   cd frontend
+#   fly launch --no-deploy        # first time only (or `fly apps create aurora-dnd-codex`)
+#   fly deploy
+#
+# The PocketBase URL is baked into the build via the build arg below.
+
+app = "aurora-dnd-codex"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+  [build.args]
+    REACT_APP_POCKETBASE_URL = "https://dndlostharcreation.fly.dev"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
