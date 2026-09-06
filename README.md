@@ -1,70 +1,84 @@
-# Getting Started with Create React App
+# Aurora — D&D 2024 Character Codex
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A self-hosted, leather-bound digital grimoire for D&D 2024 characters.
+Players sign in with **username + password**, build characters on a
+full-featured Aurora sheet, and every save — including the user-accounts
+file itself — is written to **one shared Google Drive account** that the
+operator owns. End-users never see a Google consent screen. **No
+database required.**
 
-## Available Scripts
+## Architecture
 
-In the project directory, you can run:
+```
+┌──────────────────────────┐      ┌──────────────────────────┐
+│  React frontend          │      │  FastAPI backend         │
+│  (static, /sheet/*.html  │ HTTP │  - JWT auth              │
+│   iframe character sheet)│ ───▶│  - Google Drive proxy     │
+└──────────────────────────┘      └────────────┬─────────────┘
+                                                │
+                                                ▼
+                                  ┌────────────────────────┐
+                                  │  Owner Drive           │
+                                  │  Aurora Codex/         │
+                                  │    _users.json         │
+                                  │    <user1>/*.json      │
+                                  │    <user2>/*.json      │
+                                  └────────────────────────┘
+```
 
-### `npm start`
+## Features
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+- Username + pass-phrase signup / login (open registration)
+- Full D&D 2024 character sheet — every PHB-2024 spell, the complete
+  DMG-2024 magic-item catalog with rich descriptions, rest mechanics,
+  inventory, attunement, action economy auto-population, charge trackers
+- Codex dashboard with portrait thumbnails (per-character)
+- Quick Save & manual save → JSON written to your Google Drive folder
+- Local JSON download / upload — characters are portable
+- Admin role with per-user character counts
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+## Local development
 
-### `npm test`
+### Backend
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+```bash
+cd backend
+cp .env.example .env       # edit values
+pip install -r requirements.txt
+uvicorn server:app --host 0.0.0.0 --port 8001 --reload
+```
 
-### `npm run build`
+### Frontend
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+```bash
+cd frontend
+cp .env.example .env       # edit REACT_APP_BACKEND_URL
+yarn install
+yarn start
+```
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+Then open http://localhost:3000.
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+### MongoDB
 
-### `npm run eject`
+No database required. Both user accounts (`_users.json`) and character
+JSONs live entirely inside the shared Google Drive folder.
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+### Initial admin
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+A single admin user is auto-seeded on first backend boot from
+`ADMIN_USERNAME` / `ADMIN_PASSWORD`. Defaults: `admin` / `admin123` —
+change them in production!
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+## Deploy
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+- **Netlify (one platform)** — recommended, free. Hosts the React build
+  AND runs the API as a single Netlify Function. Follow
+  [`DEPLOY_NETLIFY.md`](./DEPLOY_NETLIFY.md).
+- **Render** — alternative if you prefer a Python backend. Follow
+  [`DEPLOY_RENDER.md`](./DEPLOY_RENDER.md).
 
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+Both paths require no database. The build output is portable: any
+static host works for the frontend (Cloudflare Pages, Vercel, S3, etc.)
+and any Python host works for the FastAPI backend (Fly.io, Railway,
+Cloud Run, a VPS) if you don't want serverless.

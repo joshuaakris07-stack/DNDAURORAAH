@@ -1,0 +1,187 @@
+"""Idempotently create/adapt the Aurora PocketBase schema.
+
+Authenticates as the PocketBase superuser (creds from backend/.env, server-side
+only) and:
+  - adapts the default `users` auth collection: adds `username` (identity) and
+    `role`, makes email optional, sets role-aware API rules.
+  - creates `characters` (owner relation, portrait file, data json), plus the
+    shared `magic_items` and `spells` library collections, with API rules.
+
+Safe to run repeatedly. Never deletes data.
+"""
+import os
+import sys
+import httpx
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent.parent / "backend" / ".env")
+
+PB = os.environ["POCKETBASE_URL"].rstrip("/")
+EMAIL = os.environ["POCKETBASE_SUPERUSER_EMAIL"]
+PASSWORD = os.environ["POCKETBASE_SUPERUSER_PASSWORD"]
+
+c = httpx.Client(timeout=30.0)
+
+
+def auth():
+    r = c.post(f"{PB}/api/collections/_superusers/auth-with-password",
+               json={"identity": EMAIL, "password": PASSWORD})
+    r.raise_for_status()
+    tok = r.json()["token"]
+    c.headers["Authorization"] = f"Bearer {tok}"
+
+
+def get_collection(name):
+    r = c.get(f"{PB}/api/collections/{name}")
+    if r.status_code == 404:
+        return None
+    r.raise_for_status()
+    return r.json()
+
+
+def upsert_base(name, fields, rules, indexes=None):
+    existing = get_collection(name)
+    # Base collections in PB v0.23 do NOT auto-add created/updated — add the
+    # autodate system fields explicitly so timestamps + ordering work.
+    autodate = [
+        {"type": "autodate", "name": "created", "onCreate": True, "onUpdate": False},
+        {"type": "autodate", "name": "updated", "onCreate": True, "onUpdate": True},
+    ]
+    have = {f["name"] for f in fields}
+    fields = fields + [f for f in autodate if f["name"] not in have]
+    body = {
+        "name": name,
+        "type": "base",
+        "fields": fields,
+        "indexes": indexes or [],
+        **rules,
+    }
+    if existing:
+        r = c.patch(f"{PB}/api/collections/{existing['id']}", json=body)
+        action = "updated"
+    else:
+        r = c.post(f"{PB}/api/collections", json=body)
+        action = "created"
+    if r.status_code >= 400:
+        print(f"  ! {name} {action} failed {r.status_code}: {r.text[:400]}")
+        r.raise_for_status()
+    print(f"  {name}: {action}")
+    return r.json()
+
+
+def main():
+    auth()
+    print("Authenticated as superuser.")
+
+    # ---- users (auth) : adapt the default collection ----
+    users = get_collection("users")
+    if not users:
+        print("  ! default users collection missing; aborting")
+        sys.exit(1)
+
+    fields = users["fields"]
+    names = {f["name"] for f in fields}
+    # email optional (we log in by username)
+    for f in fields:
+        if f["name"] == "email":
+            f["required"] = False
+    if "username" not in names:
+        fields.append({"type": "text", "name": "username", "required": True,
+                       "min": 3, "max": 100, "pattern": ""})
+    if "role" not in names:
+        fields.append({"type": "select", "name": "role", "required": True,
+                       "maxSelect": 1, "values": ["user", "admin"]})
+
+    users_body = {
+        "fields": fields,
+        "passwordAuth": {"enabled": True, "identityFields": ["username"]},
+        "indexes": list({*users.get("indexes", []),
+                         "CREATE UNIQUE INDEX `idx_users_username` ON `users` (`username`)"}),
+        # Registration is open but only as role=user; admins are seeded server-side.
+        "listRule": '@request.auth.role = "admin"',
+        "viewRule": 'id = @request.auth.id || @request.auth.role = "admin"',
+        "createRule": '@request.body.role = "user"',
+        "updateRule": '(@request.auth.id = id && (@request.body.role:isset = false || @request.body.role = role)) || @request.auth.role = "admin"',
+        "deleteRule": '@request.auth.role = "admin"',
+    }
+    r = c.patch(f"{PB}/api/collections/{users['id']}", json=users_body)
+    if r.status_code >= 400:
+        print(f"  ! users update failed {r.status_code}: {r.text[:400]}")
+        r.raise_for_status()
+    users_id = r.json()["id"]
+    print(f"  users: updated (id={users_id}, identity=username, +role)")
+
+    # ---- characters (base) ----
+    char_rules = {
+        "listRule": 'owner = @request.auth.id || @request.auth.role = "admin"',
+        "viewRule": 'owner = @request.auth.id || @request.auth.role = "admin"',
+        "createRule": '@request.auth.id != "" && (owner = @request.auth.id || @request.auth.role = "admin")',
+        "updateRule": 'owner = @request.auth.id || @request.auth.role = "admin"',
+        "deleteRule": 'owner = @request.auth.id || @request.auth.role = "admin"',
+    }
+    upsert_base(
+        "characters",
+        fields=[
+            {"type": "relation", "name": "owner", "required": True, "maxSelect": 1,
+             "collectionId": users_id, "cascadeDelete": True},
+            {"type": "text", "name": "name", "required": True, "max": 120},
+            {"type": "text", "name": "char_class", "max": 80},
+            {"type": "number", "name": "level", "min": 1, "max": 20},
+            {"type": "file", "name": "portrait", "maxSelect": 1, "maxSize": 5242880,
+             "mimeTypes": ["image/png", "image/jpeg", "image/webp", "image/gif"],
+             "thumbs": ["100x100", "300x400"]},
+            {"type": "file", "name": "images", "maxSelect": 99, "maxSize": 10485760,
+             "mimeTypes": ["image/png", "image/jpeg", "image/webp", "image/gif"],
+             "thumbs": ["400x400"]},
+            {"type": "json", "name": "data", "maxSize": 20000000},
+        ],
+        rules=char_rules,
+        indexes=["CREATE INDEX `idx_characters_owner` ON `characters` (`owner`)"],
+    )
+
+    # ---- shared library: read by any authed user, write by admins ----
+    lib_rules = {
+        "listRule": '@request.auth.id != ""',
+        "viewRule": '@request.auth.id != ""',
+        "createRule": '@request.auth.role = "admin"',
+        "updateRule": '@request.auth.role = "admin"',
+        "deleteRule": '@request.auth.role = "admin"',
+    }
+    upsert_base(
+        "magic_items",
+        fields=[
+            {"type": "text", "name": "name", "required": True, "max": 120},
+            {"type": "text", "name": "rarity", "max": 40},
+            {"type": "text", "name": "item_type", "max": 40},
+            {"type": "bool", "name": "attunement"},
+            {"type": "text", "name": "charges", "max": 80},
+            {"type": "editor", "name": "description", "maxSize": 20000},
+            {"type": "text", "name": "created_by", "max": 100},
+        ],
+        rules=lib_rules,
+        indexes=["CREATE INDEX `idx_magic_items_name` ON `magic_items` (`name`)"],
+    )
+    upsert_base(
+        "spells",
+        fields=[
+            {"type": "text", "name": "name", "required": True, "max": 120},
+            {"type": "number", "name": "level", "min": 0, "max": 9},
+            {"type": "text", "name": "school", "max": 40},
+            {"type": "text", "name": "casting_time", "max": 80},
+            {"type": "text", "name": "range_text", "max": 80},
+            {"type": "text", "name": "components", "max": 120},
+            {"type": "text", "name": "duration", "max": 80},
+            {"type": "editor", "name": "description", "maxSize": 20000},
+            {"type": "editor", "name": "higher_levels", "maxSize": 10000},
+            {"type": "text", "name": "created_by", "max": 100},
+        ],
+        rules=lib_rules,
+        indexes=["CREATE INDEX `idx_spells_name` ON `spells` (`level`,`name`)"],
+    )
+
+    print("Schema setup complete.")
+
+
+if __name__ == "__main__":
+    main()

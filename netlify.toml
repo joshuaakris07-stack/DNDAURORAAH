@@ -1,0 +1,55 @@
+# Netlify configuration for the Aurora Codex — single-platform deploy.
+#
+# • React frontend is built from /frontend and published as static.
+# • The FastAPI backend has been replaced by a single Netlify Function
+#   (/netlify/functions/api.mjs) that owns auth + Google Drive I/O.
+# • The /api/* → function redirect is declared explicitly below as a
+#   belt-and-braces guard (the function also self-declares its path via
+#   `export const config = { path: ... }`).
+# • SPA fallback below makes React Router work for client routes.
+
+[build]
+  base    = "."
+  command = "npm ci --prefix netlify/functions && cd frontend && yarn install && yarn build"
+  publish = "frontend/build"
+
+[build.environment]
+  NODE_VERSION = "20"
+  CI           = "false"
+
+[functions]
+  directory    = "netlify/functions"
+  node_bundler = "esbuild"
+
+# ── /api/* → serverless function ────────────────────────────────────
+# Explicit redirect with status 200 (rewrite, not a 301) so the
+# browser URL stays as /api/... and the function sees the original path.
+# These come BEFORE the SPA fallback so they win.
+[[redirects]]
+  from   = "/api/*"
+  to     = "/.netlify/functions/api/:splat"
+  status = 200
+  force  = true
+
+[[redirects]]
+  from   = "/api"
+  to     = "/.netlify/functions/api"
+  status = 200
+  force  = true
+
+# ── SPA fallback ────────────────────────────────────────────────────
+[[redirects]]
+  from   = "/*"
+  to     = "/index.html"
+  status = 200
+
+# ── Caching ─────────────────────────────────────────────────────────
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/static/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
